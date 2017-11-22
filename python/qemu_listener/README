@@ -1,0 +1,77 @@
+switch_server.py est un script écrit en python 2.7
+
+Il prend 2 arguments :
+        - port : entier entre 0 et 65535, le port en écoute auquel vont se
+          connecter les qemu
+        - mirror-port : entier entre 0 et 65535, optionnel, le port sur lequel
+          le switch va se connecter en mode miroir
+
+
+On utilise différents ensembles de données :
+        - writeList     : une liste des ports vers lesquels on peut écrire
+        - readList      : une liste des ports dans lesquels on peut lire (le
+          serveur fait partie de cette liste car il reçoit des demandes de
+          connexions)
+        - data_queues   : un dictionnaire qui permet d'attribuer une queue
+          pour chaque connexion, dans laquelle on mettra les données à faire
+          transiter
+        - macaddr_connection : un dictionnaire servant de CAM table, qui va
+          donc permettre d'aiguiller les données vers la bonne queue en
+          utilisant les adresses MAC.
+
+
+En utilisant select, on monitore la liste des ports en lecture:
+    - Si une nouvelle demande de connexion est reçue
+        - elle est acceptée par le serveur
+        - la nouvelle connexion est ajoutée aux listes de lecture et
+          d'écriture
+        - une nouvelle queue est associée à la connexion dans le dictionnaire
+
+    - Si on reçoit des données pour une connexion
+        - Une trame Ethernet pouvant contenir un maximum de 1500 octets de
+          données, on limite l'appel de la fonction recv à 2048 (conseillé par
+          la documentation de Python)
+        - Si la trame reçue est inférieure à 64, on la considère comme
+          invalide
+        - Sinon on recherche les adresses MAC d'origine et de destination,
+          situées juste avant l'indicateur de fin de l'entête de liaison
+          (EtherType)
+        - Si on n'a pas d'adresse MAC d'origine, on considère la trame comme
+          invalide
+        - Si l'adresse MAC de destination est inconnue on rajoute les données à toutes les
+          queues pour faire un envoi Broadcast
+        - Si l'adresse MAC fait partie de la table CAM, on ajoute les données
+          à la queue de la connexion correspondante. Si la queue n'existe
+          plus (connexion close), on retire l'adresse MAC de la table CAM
+        - Dans tous les cas on envoie les données au port miroir, si il existe
+
+    - Si on est notifié de la perte d'une connexion
+        - On clot la socket correspondante
+        - On supprime la queue de données
+        - On retire la connexion des listes de lecture et écriture
+
+On monitore également les ports en écriture:
+    - On lit on mode non bloquant dans la queue associée à la connexion
+    - Si on a des données dans la queue, on les envoie
+    - Sinon on ne fait rien
+
+
+
+mirror_port_listener.py est un script écrit en python 2.7
+
+Il prend un argument:
+        - port : le numéro de port sur lequel le switch va se connecter pour
+          l'utiliser comme port miroir
+
+
+On utilise une liste (readList) pour stocker les ports en lecture.
+Le listener n'a pas vocation à fonctionner en écriture, mais on pourrait y
+connecter plusieurs switch.
+
+    - Si une demande de connexion est reçue, on l'accepte
+    - Si on reçoit des données d'une connexion existante, on les affiche en
+      console
+    - Si une connexion est interrompue, on retire la connexion de la liste et
+      on ferme la socket
+
+
