@@ -1,3 +1,4 @@
+
 package client;
 
 import java.io.*;
@@ -188,10 +189,7 @@ public class TheClient {
             byte[] command = new byte[5+pin.length];
 
             System.arraycopy(cmd,0,command,0,5);
-            for(int i = 0; i < pin.length; i++)
-            {
-                command[5+i] = pin[i];
-            }
+            System.arraycopy(pin,0,command,5,pin.length);
             System.out.println("// Update writePIN into the card");
             cmdAPDU = new CommandAPDU( command );
             displayAPDU(cmdAPDU);
@@ -212,10 +210,7 @@ public class TheClient {
             byte[] command = new byte[5+pin.length];
 
             System.arraycopy(cmd,0,command,0,5);
-            for(int i = 0; i < pin.length; i++)
-            {
-                command[5+i] = pin[i];
-            }
+            System.arraycopy(pin,0,command,5,pin.length);
             System.out.println("// Update readPIN into the card");
             cmdAPDU = new CommandAPDU( command );
             displayAPDU(cmdAPDU);
@@ -269,10 +264,7 @@ public class TheClient {
             byte[] command = new byte[5+pin.length];
 
             System.arraycopy(cmd,0,command,0,5);
-            for(int i = 0; i < pin.length; i++)
-            {
-                command[5+i] = pin[i];
-            }
+            System.arraycopy(pin,0,command,5,pin.length);
             System.out.println("// Enter readPIN for validation");
             cmdAPDU = new CommandAPDU( command );
             displayAPDU(cmdAPDU);
@@ -292,10 +284,7 @@ public class TheClient {
             byte[] command = new byte[5+pin.length];
 
             System.arraycopy(cmd,0,command,0,5);
-            for(int i = 0; i < pin.length; i++)
-            {
-                command[5+i] = pin[i];
-            }
+            System.arraycopy(pin,0,command,5,pin.length);
             System.out.println("// Enter writePIN for validation");
             cmdAPDU = new CommandAPDU( command );
             displayAPDU(cmdAPDU);
@@ -331,10 +320,7 @@ public class TheClient {
             byte[] command = new byte[5+name.length];
 
             System.arraycopy(cmd,0,command,0,5);
-            for(int i = 0; i < name.length; i++)
-            {
-                command[5+i] = name[i];
-            }
+            System.arraycopy(name,0,command,5,name.length);
             System.out.println("// Write name into the card");
             cmdAPDU = new CommandAPDU( command );
             displayAPDU(cmdAPDU);
