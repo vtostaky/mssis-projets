@@ -34,20 +34,33 @@ public class TheApplet extends Applet {
      *           */
     final static short SW_PIN_VERIFICATION_REQUIRED = 0x6301;
 
-    final static short NVRSIZE      = (short)1024;
+    final static short NAMESIZE     = (short)0x20;
+    static byte[] NAME              = new byte[NAMESIZE];
+    final static short NVRSIZE      = (short)16384;
     static byte[] NVR               = new byte[NVRSIZE];
+    short headersize            = (short)0x00;
     OwnerPIN writePIN;
     OwnerPIN readPIN;
     boolean security;
+    boolean newfile;
+    short nb_apdu_size_max;
+    short size_last_apdu;
 
     protected TheApplet() {
         this.register();
-        byte[] pincode = {(byte)0x30,(byte)0x30,(byte)0x30,(byte)0x30}; // PIN code "0000"
+        byte[] pincode = {(byte)0x30,(byte)0x30,(byte)0x30,(byte)0x30}; // Write PIN code "0000"
         writePIN = new OwnerPIN((byte)3,(byte)8);               // 3 tries 8=Max Size
         writePIN.update(pincode,(short)0,(byte)4);              // from pincode, offset 0, length 4
+        pincode[0] = (byte)0x31;
+        pincode[1] = (byte)0x31;
+        pincode[2] = (byte)0x31;
+        pincode[3] = (byte)0x31;// Read PIN code "1111"
         readPIN = new OwnerPIN((byte)3,(byte)8);                // 3 tries 8=Max Size
         readPIN.update(pincode,(short)0,(byte)4);               // from pincode, offset 0, length 4
         security = false;
+        newfile = false;
+        nb_apdu_size_max = (short)0;
+        size_last_apdu = (short)0;
     }
 
 
@@ -57,11 +70,15 @@ public class TheApplet extends Applet {
 
 
     public boolean select() {
+        if ( readPIN.getTriesRemaining() == 0 || writePIN.getTriesRemaining() == 0)
+            return false;
         return true;
     } 
 
 
     public void deselect() {
+        readPIN.reset();
+        writePIN.reset(); 
     }
 
     public void process(APDU apdu) throws ISOException {
@@ -110,6 +127,33 @@ public class TheApplet extends Applet {
 
 
     void writeFileToCard( APDU apdu ) {
+        byte[] buffer = apdu.getBuffer();
+        if ( security && (! writePIN.isValidated()) )
+            ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
+        else
+        {
+            apdu.setIncomingAndReceive();
+            if(newfile == false)
+            {
+                //header 
+                Util.arrayCopy(buffer,(short)5,NVR,(short)0,(short)(buffer[4]));
+                headersize = (short)buffer[4];
+                nb_apdu_size_max = (short)buffer[(short)buffer[5]+(short)5];
+                size_last_apdu = (short)buffer[(short)buffer[5]+(short)6];
+                newfile = true;
+            }
+            else
+            {
+                //buffer
+                short buffer_size = (short)((short)(buffer[4] & (short)0xFF)-(short)0x01);
+                short nvr_offset = (short)(headersize + (short)(buffer[5] & (short)0xFF)*(short)0x7F);
+                Util.arrayCopy(buffer,(short)6,NVR,(short)nvr_offset, (short)0x7F);
+                if(buffer_size == size_last_apdu)
+                {
+                    newfile = false;
+                }
+            }
+        }
     }
 
 
@@ -137,11 +181,12 @@ public class TheApplet extends Applet {
 
     void displayPINSecurity( APDU apdu ) {
         byte[] buffer = apdu.getBuffer();
+        buffer[0] = 0x00;
         if(security)
-            buffer[0] = 0x01;
+            buffer[1] = 0x01;
         else
-            buffer[0] = 0x00;
-        apdu.setOutgoingAndSend( (short)0, (byte)0x01);
+            buffer[1] = 0x00;
+        apdu.setOutgoingAndSend( (short)0, (byte)0x02);
     }
 
 
@@ -175,8 +220,8 @@ public class TheApplet extends Applet {
             ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
         else
         {
-            Util.arrayCopy(NVR, (short)1, buffer, (short)0, NVR[0]);
-            apdu.setOutgoingAndSend( (short)0, NVR[0]);
+            Util.arrayCopy(NAME, (short)1, buffer, (short)0, NAME[0]);
+            apdu.setOutgoingAndSend( (short)0, NAME[0]);
         }
     }
 
@@ -188,9 +233,11 @@ public class TheApplet extends Applet {
         else
         {
             apdu.setIncomingAndReceive();  
-            Util.arrayCopy(buffer,(short)4,NVR,(short)0,(short)(buffer[4]+(short)1));
+            Util.arrayCopy(buffer,(short)4,NAME,(short)0,(short)(buffer[4]+(short)1));
         }
     }
 
 
 }
+
+

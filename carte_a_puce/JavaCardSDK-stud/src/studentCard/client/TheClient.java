@@ -1,4 +1,3 @@
-
 package client;
 
 import java.io.*;
@@ -176,7 +175,65 @@ public class TheClient {
     }
 
 
-    void writeFileToCard() {
+    void writeFileToCard() {    
+        CommandAPDU cmdAPDU;
+        ResponseAPDU resp;
+        byte buffer_offset = 0x00;
+
+        String filename = readKeyboard();
+        long filesize = new File(filename).length();
+
+        try {
+            byte[] info = filename.getBytes();
+            byte[] cmd = { CLA, WRITEFILETOCARD, P1, P2, (byte)(info.length + 3)};
+            byte[] command = new byte[5+info.length+3];
+            System.out.println(info.length);
+
+            System.arraycopy(cmd,0,command,0,5);
+            command[5] = (byte)(info.length);
+            System.arraycopy(info,0,command,6,info.length);
+            command[6 + info.length] = (byte)(filesize/0x7F);
+            command[6 + info.length + 1] = (byte)(filesize - ((byte)(filesize/0x7F))*(byte)0x7F);
+
+            System.out.println("// Write file info into the card");
+            cmdAPDU = new CommandAPDU( command );
+            displayAPDU(cmdAPDU);
+            resp = this.sendAPDU( cmdAPDU, DISPLAY );
+
+        } catch( Exception e ) {}
+
+        try {
+            DataInputStream br = new DataInputStream(new FileInputStream(filename));
+            byte[] buffer = new byte[0xFF];
+            int res = 0;
+
+            do
+            {
+                try {
+                    res = br.read(buffer, 1, 0x7F);
+                } catch (Exception e) {
+                    System.out.println( "Problem with buffer reader" );
+                }
+                buffer[0] = buffer_offset;
+                byte[] cmd = { CLA, WRITEFILETOCARD, P1, P2, (byte)(res+1)};
+                byte[] command = new byte[5+res+1];
+
+                System.arraycopy(cmd,0,command,0,5);
+                System.arraycopy(buffer,0,command,5,res+1);
+                buffer_offset++;
+
+                System.out.println("// Write file content into the card "+(short)(buffer_offset-1 & (short)0xFF)+"/"+filesize/0x7F+":"+res);
+                cmdAPDU = new CommandAPDU( command );
+                displayAPDU(cmdAPDU);
+                resp = this.sendAPDU( cmdAPDU, DISPLAY );
+                if( this.apdu2string( resp ).equals( "6F 00" ) )
+                    break;
+            }while(res == 0x7F && (short)(buffer_offset & (short) 0xFF) * 0x7F < filesize);
+            br.close();
+        } catch( Exception e ) {}
+
+        System.out.println( "" );
+
     }
 
 
@@ -422,3 +479,4 @@ public class TheClient {
 
 
 }
+
