@@ -8,7 +8,6 @@ import opencard.opt.util.*;
 
 
 
-
 public class TheClient {
 
     private PassThruCardService servClient = null;
@@ -172,6 +171,57 @@ public class TheClient {
 
 
     void readFileFromCard() {
+        CommandAPDU cmdAPDU;
+        ResponseAPDU resp;
+        byte buffer_offset = 0x00;
+        String filename = "test";
+        short nb_apdu_size_max = 0;
+        short size_last_apdu = 0;
+
+        try {
+            byte[] command = { CLA, READFILEFROMCARD, P1, P2, (byte)0x1F};
+
+            System.out.println("// Read file info from card");
+            cmdAPDU = new CommandAPDU( command );
+            displayAPDU(cmdAPDU);
+            resp = this.sendAPDU( cmdAPDU, DISPLAY );
+            byte[] bytes = resp.getBytes();
+
+            String str = new String(bytes, 1, bytes[0]);
+            System.out.println( "Read file name : "+str);
+            filename = "from_file_"+str;
+            nb_apdu_size_max = (short)bytes[(short)bytes[0]+1];
+            size_last_apdu = (short)bytes[(short)bytes[0]+2];   
+        } catch( Exception e ) {}
+
+        try {
+            DataOutputStream br = new DataOutputStream(new FileOutputStream(filename));
+
+            do
+            {
+                short buffer_size = 0x7F;
+                if(buffer_offset == nb_apdu_size_max)
+                    buffer_size = size_last_apdu;
+                byte[] command = { CLA, READFILEFROMCARD, P1, P2, (byte)buffer_size};
+                buffer_offset++;
+
+                System.out.println("// Read file content from card "+(short)(buffer_offset-1 & (short)0xFF)+"/"+nb_apdu_size_max);
+                cmdAPDU = new CommandAPDU( command );
+                displayAPDU(cmdAPDU);
+                resp = this.sendAPDU( cmdAPDU, DISPLAY );
+                try {
+                    byte[] bytes = resp.getBytes();
+                    br.write(bytes, 0, bytes.length - 2);
+                    br.flush();
+                } catch (Exception e) {
+                    System.out.println( "Problem with buffer writer" );
+                }
+            }while(buffer_offset != nb_apdu_size_max+1);
+            br.close();
+        } catch( Exception e ) {}
+
+        System.out.println( "" );
+
     }
 
 
@@ -280,13 +330,13 @@ public class TheClient {
 
 
     void displayPINSecurity() {
-        byte[] cmd_ = {CLA,DISPLAYPINSECURITY,P1,P2,(byte)0x01};
+        byte[] cmd_ = {CLA,DISPLAYPINSECURITY,P1,P2,(byte)0x02};
         CommandAPDU cmd = new CommandAPDU( cmd_ );
         System.out.println("Sending DISPLAYPINSECURITY command APDU, data expected...");
         ResponseAPDU resp = this.sendAPDU( cmd, DISPLAY );
         byte[] bytes = resp.getBytes();
         String msg = "PIN security is ";
-        if(bytes[0] == (byte)0x01)
+        if(bytes[1] == (byte)0x01)
             msg += "activated";
         else
             msg += "desactivated";

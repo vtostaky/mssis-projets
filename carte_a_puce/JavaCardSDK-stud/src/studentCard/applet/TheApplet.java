@@ -25,13 +25,13 @@ public class TheApplet extends Applet {
     static final byte WRITENAMETOCARD           = (byte)0x01;
 
     /**
-     *      * SW bytes for PIN verification failure
-     *           */
+     *      *      * SW bytes for PIN verification failure
+     *           *           */
     final static short SW_VERIFICATION_FAILED = 0x6300;
 
     /**
-     *      * SW bytes for PIN validation required
-     *           */
+     *      *      * SW bytes for PIN validation required
+     *           *           */
     final static short SW_PIN_VERIFICATION_REQUIRED = 0x6301;
 
     final static short NAMESIZE     = (short)0x20;
@@ -43,8 +43,10 @@ public class TheApplet extends Applet {
     OwnerPIN readPIN;
     boolean security;
     boolean newfile;
-    short nb_apdu_size_max;
-    short size_last_apdu;
+    static short nb_apdu_size_max;
+    static short size_last_apdu;
+    static short nvr_offset;
+    static short nb_apdu;
 
     protected TheApplet() {
         this.register();
@@ -123,6 +125,34 @@ public class TheApplet extends Applet {
 
 
     void readFileFromCard( APDU apdu ) {
+        byte[] buffer = apdu.getBuffer();
+        if (security && (! readPIN.isValidated()) )
+            ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
+        else
+        {
+            if(buffer[4] == 0x1F)
+            {
+                /*header*/
+                Util.arrayCopy(NVR, (short)0, buffer, (short)0, headersize);
+                apdu.setOutgoingAndSend( (short)0, headersize);
+                nvr_offset = headersize;
+                nb_apdu = 0;
+            }
+            else
+            {
+                short apdu_size = (short)0x7F;
+                /*buffers*/
+                if((short)(nb_apdu) == nb_apdu_size_max)
+                {
+                    apdu_size = size_last_apdu;
+
+                }
+                Util.arrayCopy(NVR, (short)nvr_offset, buffer, (short)0, apdu_size);
+                apdu.setOutgoingAndSend( (short)0, apdu_size);
+                nvr_offset += (short)0x7F;
+                nb_apdu += (short)1;
+            }
+        }
     }
 
 
@@ -135,18 +165,18 @@ public class TheApplet extends Applet {
             apdu.setIncomingAndReceive();
             if(newfile == false)
             {
-                //header 
+                /*header*/ 
                 Util.arrayCopy(buffer,(short)5,NVR,(short)0,(short)(buffer[4]));
                 headersize = (short)buffer[4];
-                nb_apdu_size_max = (short)buffer[(short)buffer[5]+(short)5];
-                size_last_apdu = (short)buffer[(short)buffer[5]+(short)6];
+                nb_apdu_size_max = (short)buffer[(short)buffer[5]+(short)6];
+                size_last_apdu = (short)buffer[(short)buffer[5]+(short)7];
                 newfile = true;
             }
             else
             {
-                //buffer
+                /*buffer*/
                 short buffer_size = (short)((short)(buffer[4] & (short)0xFF)-(short)0x01);
-                short nvr_offset = (short)(headersize + (short)(buffer[5] & (short)0xFF)*(short)0x7F);
+                nvr_offset = (short)(headersize + (short)(buffer[5] & (short)0xFF)*(short)0x7F);
                 Util.arrayCopy(buffer,(short)6,NVR,(short)nvr_offset, (short)0x7F);
                 if(buffer_size == size_last_apdu)
                 {
@@ -239,5 +269,3 @@ public class TheApplet extends Applet {
 
 
 }
-
-
