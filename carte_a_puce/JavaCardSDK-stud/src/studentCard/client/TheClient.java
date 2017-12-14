@@ -31,6 +31,7 @@ public class TheClient {
     static final byte ENTERWRITEPIN             = (byte)0x03;
     static final byte READNAMEFROMCARD          = (byte)0x02;
     static final byte WRITENAMETOCARD           = (byte)0x01;
+    static final short MAXSIZEAPDU              = (short)0x0080;
 
 
     public TheClient() {
@@ -179,7 +180,7 @@ public class TheClient {
         short size_last_apdu = 0;
 
         try {
-            byte[] command = { CLA, READFILEFROMCARD, P1, P2, (byte)0x1F};
+            byte[] command = { CLA, READFILEFROMCARD, 0x01, P2, (byte)0x1F};
 
             System.out.println("// Read file info from card");
             cmdAPDU = new CommandAPDU( command );
@@ -199,7 +200,7 @@ public class TheClient {
 
             do
             {
-                short buffer_size = 0x7F;
+                short buffer_size = MAXSIZEAPDU;
                 if(buffer_offset == nb_apdu_size_max)
                     buffer_size = size_last_apdu;
                 byte[] command = { CLA, READFILEFROMCARD, P1, P2, (byte)buffer_size};
@@ -235,15 +236,15 @@ public class TheClient {
 
         try {
             byte[] info = filename.getBytes();
-            byte[] cmd = { CLA, WRITEFILETOCARD, P1, P2, (byte)(info.length + 3)};
+            byte[] cmd = { CLA, WRITEFILETOCARD, 0x01, P2, (byte)(info.length + 3)};
             byte[] command = new byte[5+info.length+3];
             System.out.println(info.length);
 
             System.arraycopy(cmd,0,command,0,5);
             command[5] = (byte)(info.length);
             System.arraycopy(info,0,command,6,info.length);
-            command[6 + info.length] = (byte)(filesize/0x7F);
-            command[6 + info.length + 1] = (byte)(filesize - ((byte)(filesize/0x7F))*(byte)0x7F);
+            command[6 + info.length] = (byte)(filesize/MAXSIZEAPDU);
+            command[6 + info.length + 1] = (byte)(filesize - ((byte)(filesize/MAXSIZEAPDU))*(byte)MAXSIZEAPDU);
 
             System.out.println("// Write file info into the card");
             cmdAPDU = new CommandAPDU( command );
@@ -260,25 +261,24 @@ public class TheClient {
             do
             {
                 try {
-                    res = br.read(buffer, 1, 0x7F);
+                    res = br.read(buffer, 0, MAXSIZEAPDU);
                 } catch (Exception e) {
                     System.out.println( "Problem with buffer reader" );
                 }
-                buffer[0] = buffer_offset;
-                byte[] cmd = { CLA, WRITEFILETOCARD, P1, P2, (byte)(res+1)};
-                byte[] command = new byte[5+res+1];
+                byte[] cmd = { CLA, WRITEFILETOCARD, P1, (byte)buffer_offset, (byte)(res)};
+                byte[] command = new byte[5+res];
 
                 System.arraycopy(cmd,0,command,0,5);
-                System.arraycopy(buffer,0,command,5,res+1);
+                System.arraycopy(buffer,0,command,5,res);
                 buffer_offset++;
 
-                System.out.println("// Write file content into the card "+(short)(buffer_offset-1 & (short)0xFF)+"/"+filesize/0x7F+":"+res);
+                System.out.println("// Write file content into the card "+(short)(buffer_offset-1 & (short)0xFF)+"/"+filesize/MAXSIZEAPDU+":"+res);
                 cmdAPDU = new CommandAPDU( command );
                 displayAPDU(cmdAPDU);
                 resp = this.sendAPDU( cmdAPDU, DISPLAY );
                 if( this.apdu2string( resp ).equals( "6F 00" ) )
                     break;
-            }while(res == 0x7F && (short)(buffer_offset & (short) 0xFF) * 0x7F < filesize);
+            }while(res == MAXSIZEAPDU && (short)(buffer_offset & (short) 0xFF) * MAXSIZEAPDU < filesize);
             br.close();
         } catch( Exception e ) {}
 

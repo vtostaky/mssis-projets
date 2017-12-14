@@ -23,6 +23,7 @@ public class TheApplet extends Applet {
     static final byte ENTERWRITEPIN             = (byte)0x03;
     static final byte READNAMEFROMCARD          = (byte)0x02;
     static final byte WRITENAMETOCARD           = (byte)0x01;
+    static final short MAXSIZEAPDU              = (short)0x0080;
 
     /**
      *      *      * SW bytes for PIN verification failure
@@ -36,17 +37,14 @@ public class TheApplet extends Applet {
 
     final static short NAMESIZE     = (short)0x20;
     static byte[] NAME              = new byte[NAMESIZE];
-    final static short NVRSIZE      = (short)16384;
+    final static short NVRSIZE      = (short)0x1000;
     static byte[] NVR               = new byte[NVRSIZE];
-    short headersize            = (short)0x00;
     OwnerPIN writePIN;
     OwnerPIN readPIN;
     boolean security;
-    boolean newfile;
-    static short nb_apdu_size_max;
-    static short size_last_apdu;
     static short nvr_offset;
     static short nb_apdu;
+    short apdu_size;
 
     protected TheApplet() {
         this.register();
@@ -60,9 +58,6 @@ public class TheApplet extends Applet {
         readPIN = new OwnerPIN((byte)3,(byte)8);                // 3 tries 8=Max Size
         readPIN.update(pincode,(short)0,(byte)4);               // from pincode, offset 0, length 4
         security = false;
-        newfile = false;
-        nb_apdu_size_max = (short)0;
-        size_last_apdu = (short)0;
     }
 
 
@@ -130,26 +125,25 @@ public class TheApplet extends Applet {
             ISOException.throwIt(SW_PIN_VERIFICATION_REQUIRED);
         else
         {
-            if(buffer[4] == 0x1F)
+            if(buffer[2] == 0x01)
             {
                 /*header*/
-                Util.arrayCopy(NVR, (short)0, buffer, (short)0, headersize);
-                apdu.setOutgoingAndSend( (short)0, headersize);
-                nvr_offset = headersize;
+                Util.arrayCopy(NVR, (short)0, buffer, (short)0, (short)(NVR[0] + 2));
+                apdu.setOutgoingAndSend( (short)0, (short)(NVR[0] + 2));
+                nvr_offset = (short)(NVR[0] + 3);
                 nb_apdu = 0;
             }
             else
             {
-                short apdu_size = (short)0x7F;
+                apdu_size = (short)MAXSIZEAPDU;
                 /*buffers*/
-                if((short)(nb_apdu) == nb_apdu_size_max)
+                if((short)(nb_apdu) == NVR[(short)(NVR[0] + 1)])
                 {
-                    apdu_size = size_last_apdu;
-
+                    apdu_size = (short)(NVR[(short)(NVR[0] + 2)]);
                 }
                 Util.arrayCopy(NVR, (short)nvr_offset, buffer, (short)0, apdu_size);
                 apdu.setOutgoingAndSend( (short)0, apdu_size);
-                nvr_offset += (short)0x7F;
+                nvr_offset += (short)MAXSIZEAPDU;
                 nb_apdu += (short)1;
             }
         }
@@ -163,25 +157,16 @@ public class TheApplet extends Applet {
         else
         {
             apdu.setIncomingAndReceive();
-            if(newfile == false)
+            if(buffer[2] == (byte)0x01)
             {
                 /*header*/ 
                 Util.arrayCopy(buffer,(short)5,NVR,(short)0,(short)(buffer[4]));
-                headersize = (short)buffer[4];
-                nb_apdu_size_max = (short)buffer[(short)buffer[5]+(short)6];
-                size_last_apdu = (short)buffer[(short)buffer[5]+(short)7];
-                newfile = true;
             }
             else
             {
                 /*buffer*/
-                short buffer_size = (short)((short)(buffer[4] & (short)0xFF)-(short)0x01);
-                nvr_offset = (short)(headersize + (short)(buffer[5] & (short)0xFF)*(short)0x7F);
-                Util.arrayCopy(buffer,(short)6,NVR,(short)nvr_offset, (short)0x7F);
-                if(buffer_size == size_last_apdu)
-                {
-                    newfile = false;
-                }
+                nvr_offset = (short)(NVR[0] + (short)3 + (short)((short)((short)0x00FF & (short)buffer[3] )*(short)MAXSIZEAPDU));
+                Util.arrayCopy(buffer,(short)5,NVR,(short)nvr_offset, (short)((short)0x00FF & (short)buffer[4]));
             }
         }
     }
