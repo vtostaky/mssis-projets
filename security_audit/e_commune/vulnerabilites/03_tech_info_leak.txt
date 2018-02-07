@@ -1,0 +1,7 @@
+exploitation : moyenne
+risque : moyen
+correction : facile
+
+recommandation : ServerSignature à off, expose_php devrait être mis à "off" dans la configuration du serveur (php.ini), et supprimer les informations importantes des pages d'erreur
+reference : http://www.devshed.com/c/a/php/securing-your-php-website/
+https://wiki.debian-fr.xyz/S%C3%A9curiser_Apache2

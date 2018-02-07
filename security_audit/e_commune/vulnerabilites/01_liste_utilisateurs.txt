@@ -1,0 +1,7 @@
+exploitation : facile
+risque : faible
+correction : facile
+
+recommandation : supprimer la fonctionnalité, ou la limiter à 3 tentatives
+successives (en se basant sur l'adresse IP)
+

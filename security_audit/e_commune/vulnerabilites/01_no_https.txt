@@ -1,0 +1,8 @@
+
+exploitation : moyenne
+risque : élevé
+correction : moyenne
+
+recommandation : mettre en place https en utilisant par exemple let's encrypt (https://letsencrypt.org/)
+référence : https://www.ssi.gouv.fr/uploads/IMG/pdf/NP_Securite_Web_NoteTech.pdf
+
