@@ -12,9 +12,10 @@ class ServiceChat extends Thread {
     static int nbClients = 0;
     static String clientID[] = new String[NBCLIENTSMAX];
     String clientName;
-    static HashMap credentialsMap = new HashMap();
+    static HashMap<String, String> credentialsMap = new HashMap<>();
     boolean isAuthenticated;
     boolean nameProvided;
+    boolean pendingTransfer = false;
 
 	public ServiceChat( Socket socket ) {
 		this.socket = socket;
@@ -43,11 +44,11 @@ class ServiceChat extends Thread {
         outputs[id].println(texte);
     }
 
-    private void broadcastMessage(String texte){
+    private void broadcastMessage(String name, String texte){
         int i;
         for(i = 0; i < getNbClients(); i++)
         {
-            sendMessage(i, clientName + " " + texte);
+            sendMessage(i, name + " " + texte);
         }
     }
     
@@ -61,24 +62,56 @@ class ServiceChat extends Thread {
             sendMessage(destIndex, "Sorry, " + userName + " is not connected to the chat");
         }
     }
+    
+    private void unicastFileTransfer(String userName, String texte){
+        int destIndex = findMatchingName(userName);
+        if(destIndex < getNbClients())
+        {
+            if(!pendingTransfer)
+                sendMessage(destIndex, "FILE " + clientName + " " + texte );
+            else
+                sendMessage(destIndex, "BUFFER " + clientName + " " + texte );
+            pendingTransfer = true;
+        }   
+        else
+        {
+            destIndex = getClientID();
+            sendMessage(destIndex, "Sorry, " + userName + " is not connected to the chat");
+        }
+    }
 
     private synchronized void processMessage(String texte){
         
         if(!isAuthenticated)
         {
-            authentication(texte);
+            if(texte.equals(""))
+                if(nameProvided)
+                    sendMessage(getClientID(), "Please specify a valid password");
+                else
+                    sendMessage(getClientID(), "Please specify a valid user name");
+            else
+                authentication(texte);
         }
         else
         {
-            if(texte.substring(0,1).equals("/"))
-                processCommand(texte.substring(1,texte.length()));
-            else if(texte.substring(0,1).equals("@"))
+            try
             {
-                String[] textParts = texte.split(" ");
-                unicastMessage(textParts[0].substring(1,textParts[0].length()), texte.substring(textParts[0].length()+1, texte.length()));
+                if(!texte.substring(0,7).equals("/buffer"))
+                    System.out.println(clientName + ": " + texte);
+                if(texte.substring(0,1).equals("/"))
+                    processCommand(texte.substring(1,texte.length()));
+                else if(texte.substring(0,1).equals("@"))
+                {
+                    String[] textParts = texte.split(" ");
+                    unicastMessage(textParts[0].substring(1,textParts[0].length()), texte.substring(textParts[0].length()+1, texte.length()));
+                }
+                else
+                    broadcastMessage(clientName, "> " + texte);
             }
-            else
-                broadcastMessage("> " + texte);
+            catch(StringIndexOutOfBoundsException e)
+            {
+                broadcastMessage(clientName, "> " + texte);
+            }
         }
     }
 
@@ -124,6 +157,12 @@ class ServiceChat extends Thread {
                 isAuthenticated = true;
             }
         }
+        if(isAuthenticated)
+        {
+            System.out.println(clientName + " connected");
+            sendMessage(getClientID(), "[SERVER] Hello "+clientName+"!");
+            broadcastMessage("[SERVER]", clientName+" has joined the chat / "+nbClients+" users connected.");
+        }
     }
 
     private synchronized void processCommand(String texte){
@@ -136,23 +175,79 @@ class ServiceChat extends Thread {
             case "nusers":
                 sendMessage(getClientID(), ""+ getNbClients());
                 break;
-            case "users":
+            case "list":
                 sendMessage(getClientID(), "List of Users :");
                 for(i = 0; i < getNbClients(); i++)
                 {
                     sendMessage(getClientID(), clientID[i]);
                 }
                 break;
-            case "exit":
+            case "quit":
                 deconnexion();
                 break;
+            case "nickname":
+                try{
+                    String pwd = credentialsMap.remove(clientName);
+                    clientName = textParts[1];
+                    credentialsMap.put(clientName, pwd); 
+		        } catch(ArrayIndexOutOfBoundsException e ) {
+                    sendMessage(getClientID(), "/nickname <name>    : change nickname");
+                }
+                break;
+            case "file":
+                try{
+                    unicastFileTransfer(textParts[1], texte.substring(textParts[0].length()+textParts[1].length()+2, texte.length()));
+		        } catch(ArrayIndexOutOfBoundsException e ) {
+                    sendMessage(getClientID(), "/file <name> <file> : transmit file");
+                }
+                break;
+            case "buffer":
+                if(!pendingTransfer)
+                {
+                    sendMessage(getClientID(), "Command "+ texte + " unknown");
+                    sendMessage(getClientID(), "/quit                   : quit the chat");
+                    sendMessage(getClientID(), "/nusers                 : get number of connected users");
+                    sendMessage(getClientID(), "/list                   : get list of connected users");
+                    sendMessage(getClientID(), "/nickname <name>        : change nickname");
+                    sendMessage(getClientID(), "/file <name> <file>     : transmit file");
+                    sendMessage(getClientID(), "/msg <username> <text>  : send private message to given user");
+                    sendMessage(getClientID(), "@<username> <text>      : send private message to given user");
+                }
+
+                try{
+                    unicastFileTransfer(textParts[1], texte.substring(textParts[0].length()+textParts[1].length()+2, texte.length()));
+		        } catch(ArrayIndexOutOfBoundsException e ) {
+                    sendMessage(getClientID(), "Buffer transmission issue");
+                }
+                break;
+            case "endoftransfer":
+                try{
+                    pendingTransfer = false;
+                    int ID = findMatchingName(textParts[1]);
+                    sendMessage(ID, "ENDOFFILE " + clientName);
+		        } catch(ArrayIndexOutOfBoundsException e ) {
+                    sendMessage(getClientID(), "Buffer end of file issue");
+                }
+                break;
+
+            case "msg":
+                try{
+                    unicastMessage(textParts[1], texte.substring(textParts[0].length()+textParts[1].length()+2, texte.length()));
+		        } catch(ArrayIndexOutOfBoundsException e ) {
+                    sendMessage(getClientID(), "/msg <username> <text>  : send private message to given user");
+                }
+                break;
+
             default:
                 if(!textParts[0].equals("help"))
                     sendMessage(getClientID(), "Command "+ texte + " unknown");
-                sendMessage(getClientID(), "/exit               : quit the chat");
-                sendMessage(getClientID(), "/nusers             : get number of connected users");
-                sendMessage(getClientID(), "/users              : get list of connected users");
-                sendMessage(getClientID(), "@<username> <text>  : send private message to given user");
+                sendMessage(getClientID(), "/quit                   : quit the chat");
+                sendMessage(getClientID(), "/nusers                 : get number of connected users");
+                sendMessage(getClientID(), "/list                   : get list of connected users");
+                sendMessage(getClientID(), "/nickname <name>        : change nickname");
+                sendMessage(getClientID(), "/file <name> <file>     : transmit file");
+                sendMessage(getClientID(), "/msg <username> <text>  : send private message to given user");
+                sendMessage(getClientID(), "@<username> <text>      : send private message to given user");
                 break;
         }
     }
@@ -164,6 +259,7 @@ class ServiceChat extends Thread {
 
             isAuthenticated = false;
             nameProvided = false;
+            sendMessage(getClientID(), "[SERVER] Bye "+clientName+"!");
 
             for(i = currentClientIndex; i < nbClients-1; i++)
             {
@@ -174,9 +270,10 @@ class ServiceChat extends Thread {
             socket.close();
             nbClients--;
 
-            broadcastMessage("has left the chat");
+            broadcastMessage("[SERVER]", clientName + " has left the chat / "+nbClients+" users connected.");
+            System.out.println(clientName + " disconnected");
         } catch( IOException e ) {
-			System.out.println( "problem during deconnexion" );
+			System.out.println( "problem during disconnection" );
 		}
     }
 
@@ -185,7 +282,7 @@ class ServiceChat extends Thread {
             isAuthenticated = false;
             nameProvided = false;
             outputs[nbClients] = new PrintStream( socket.getOutputStream() );
-            outputs[nbClients].println("Please enter your name" );
+            sendMessage(nbClients, "Please enter your name");
             clientName = ""+ socket.getPort();
             clientID[nbClients] = clientName;
             nbClients++;
@@ -216,20 +313,13 @@ class ServiceChat extends Thread {
 			while(true)
             {
                 texte = input.readLine();
-                try{
-                    processMessage(texte);
-                }
-                catch(NullPointerException e)
-                {
-			        System.out.println( "NULL exception dans la socket" );
-                    break;
-                }
+                processMessage(texte);
             }
-
-            deconnexion();
-
 		} catch( IOException e ) {
 			System.out.println( "problem during run" );
 		}
+        catch(NullPointerException e){}
+        
+        deconnexion();
 	}
 }
