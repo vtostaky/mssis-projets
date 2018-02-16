@@ -8,6 +8,7 @@ import opencard.opt.util.*;
 import java.net.*;
 import java.io.*;
 import java.util.*;
+import java.util.Base64;
 
 public class ClientChat extends Thread {
 
@@ -15,23 +16,30 @@ public class ClientChat extends Thread {
     PrintStream outputConsole, outputNetwork;
     boolean isAlive = false;
     HashMap<String, OutputStream> transferMap;
-	
-	private PassThruCardService servClient = null;
+    
+    private PassThruCardService servClient = null;
     boolean DISPLAY = true;
     boolean loop = true;
 
-    static final byte CLA                                       = (byte)0x00;
+    static final byte CLA_DES                                   = (byte)0x00;
     static final byte P1                                        = (byte)0x00;
     static final byte P2                                        = (byte)0x00;
     static final byte UNCIPHERFILEBYCARD                        = (byte)0x13;
     static final byte CIPHERFILEBYCARD                          = (byte)0x12;
-    static final byte CIPHERANDUNCIPHERNAMEBYCARD               = (byte)0x11;
     static final short MAXSIZEAPDU                              = (short)0x00F0;
-    private final static byte INS_DES_ECB_NOPAD_ENC           	= (byte)0x20;
-    private final static byte INS_DES_ECB_NOPAD_DEC           	= (byte)0x21;
+    private final static byte INS_DES_ECB_NOPAD_ENC             = (byte)0x20;
+    private final static byte INS_DES_ECB_NOPAD_DEC             = (byte)0x21;
+	private final static byte CLA_RSA                           = (byte)0x90;
+	private final static byte INS_RSA_ENCRYPT                   = (byte)0xA0;
+	private final static byte INS_RSA_DECRYPT                   = (byte)0xA2;
+	private final static byte INS_RSA_SERVER_ENCRYPT            = (byte)0xA4;
+	private final static byte INS_GET_PUBLIC_RSA_KEY            = (byte)0xFE;
+	private final static byte INS_PUT_PUBLIC_RSA_KEY            = (byte)0xF4;
+	private final static byte INS_GENERATE_RSA_KEY              = (byte)0xF6;
+	private final static byte INS_PUT_SERVER_PUBLIC_RSA_KEY     = (byte)0xF8;
 
     public ClientChat( String[] args ) {
-		try {
+        try {
             int port = 2222;
             String address = "localhost";
             if(args.length > 0)
@@ -41,21 +49,21 @@ public class ClientChat extends Thread {
             Socket s = new Socket(address, port);
             transferMap = new HashMap<String, OutputStream>();
             initInputOutput(s);
-			
-			//Start listenNetwork thread
+            
+            //Start listenNetwork thread
             start();
-			
-			//Start console listener
+            
+            //Start console listener
             listenConsole();
 
             s.close();
-		} catch( IOException e ) {
-			System.out.println( "connexion problem" );
-		} catch( IllegalArgumentException e) {
-			System.out.println( "Port should be an integer smaller than 65535" );
+        } catch( IOException e ) {
+            System.out.println( "connexion problem" );
+        } catch( IllegalArgumentException e) {
+            System.out.println( "Port should be an integer smaller than 65535" );
         }
-	}
-	
+    }
+    
     private ResponseAPDU sendAPDU(CommandAPDU cmd) {
         return sendAPDU(cmd, true);
     }
@@ -98,7 +106,7 @@ public class ClientChat extends Thread {
     private String removeCR( String string ) {
         return string.replace( '\n', ' ' );
     }
-	
+    
 
     /******************************************
      *   * *********** END OF TOOLS ***************
@@ -148,14 +156,14 @@ public class ClientChat extends Thread {
         } else 
             System.out.println( "Applet selected" );
     }
-	
-	void activateSmartcard()
-	{
-		try {
-			//Start smartcard
+    
+    void activateSmartcard()
+    {
+        try {
+            //Start smartcard
             SmartCard.start();
             System.out.print( "Smartcard inserted?... " );
-			
+            
             CardRequest cr = new CardRequest (CardRequest.ANYCARD,null,null); 
 
             SmartCard sm = SmartCard.waitForCard (cr);
@@ -166,19 +174,19 @@ public class ClientChat extends Thread {
                 System.out.println( "did not get a SmartCard object!\n" );
 
             this.initNewCard( sm );
-			
-		} catch( Exception e ) {
+            
+        } catch( Exception e ) {
             System.out.println( "TheClient error: " + e.getMessage() );
         }
-	}
+    }
 
     void uncipherFileByCard(String filename)
-	{
-		byte[] challengeDES = new byte[16];
-		byte[] response;
-		int i = 0;
-		
-		activateSmartcard();
+    {
+        byte[] challengeDES = new byte[16];
+        byte[] response;
+        int i = 0;
+        
+        activateSmartcard();
 
         try {
             DataInputStream br = new DataInputStream(new FileInputStream(filename+"_crypt"));
@@ -193,46 +201,46 @@ public class ClientChat extends Thread {
                 } catch (Exception e) {
                     System.out.println( "Problem with buffer reader" );
                 }
-				if(res < 16)
-					break;
-				for(i = 0; i < 16; i++)
-					challengeDES[i] = buffer[i];
-				
-				response = cipherGeneric(UNCIPHERFILEBYCARD, P1, challengeDES);
-				
-				//Find starting point of padding
-				for(i = 15; i >= 0; i--)
-					if(response[i] == (byte)0x80)
-						break;
+                if(res < 16)
+                    break;
+                for(i = 0; i < 16; i++)
+                    challengeDES[i] = buffer[i];
+                
+                response = cipherGeneric(UNCIPHERFILEBYCARD, P1, challengeDES);
+                
+                //Find starting point of padding
+                for(i = 15; i >= 0; i--)
+                    if(response[i] == (byte)0x80)
+                        break;
 
-				try {
+                try {
                     obr.write(response, 0, i);
                     obr.flush();
                 } catch (Exception e) {
                     System.out.println( "Problem with buffer writer" );
                 }
-				
+                
             }while(res == 16);
             br.close();
-			obr.close();
+            obr.close();
         } catch( Exception e ) {}
 
         System.out.println( "" );
-		
-		try{
-			SmartCard.shutdown();
-		} catch( Exception e ) {
+        
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
             System.out.println( "TheClient error: " + e.getMessage() );
         }
     }
 
 
     void cipherFileByCard(String filename)
-	{
-		byte[] challengeDES = new byte[16];
-		byte[] response;
-		
-		activateSmartcard();
+    {
+        byte[] challengeDES = new byte[16];
+        byte[] response;
+        
+        activateSmartcard();
 
         try {
             DataInputStream br = new DataInputStream(new FileInputStream(filename));
@@ -247,49 +255,49 @@ public class ClientChat extends Thread {
                 } catch (Exception e) {
                     System.out.println( "Problem with buffer reader" );
                 }
-				for(int i = 0; i < 16; i++)
-					if( i < res)
-						challengeDES[i] = buffer[i];
-					else
-						challengeDES[i] = 0;
-				
-				if(res < 16)
-					challengeDES[res] = (byte)0x80;
-				
-				response = cipherGeneric(CIPHERFILEBYCARD, P1, challengeDES);
+                for(int i = 0; i < 16; i++)
+                    if( i < res)
+                        challengeDES[i] = buffer[i];
+                    else
+                        challengeDES[i] = 0;
+                
+                if(res < 16)
+                    challengeDES[res] = (byte)0x80;
+                
+                response = cipherGeneric(CIPHERFILEBYCARD, P1, challengeDES);
 
-				try {
+                try {
                     obr.write(response, 0, response.length);
                     obr.flush();
                 } catch (Exception e) {
                     System.out.println( "Problem with buffer writer" );
                 }
-				
+                
             }while(res == 8);
             br.close();
-			obr.close();
+            obr.close();
         } catch( Exception e ) {}
 
         System.out.println( "" );
-		
-		try{
-			SmartCard.shutdown();
-		} catch( Exception e ) {
+        
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
             System.out.println( "TheClient error: " + e.getMessage() );
         }
     }
 
     private byte[] cipherGeneric(byte typeAPDU, byte crypto, byte[] challenge ) {
-	    byte[] result = new byte[challenge.length];
-	    byte cmd [] ={CLA,typeAPDU,crypto,P2,(byte)challenge.length};
-		byte  [] cmd_1=new byte[challenge.length+6];
-		System.arraycopy(cmd,(short)0,cmd_1,(short)0,(short)cmd.length);
-		System.arraycopy(challenge,(short)0,cmd_1,(short)5,(short)challenge.length);
-		cmd_1[21]=(byte)challenge.length;
-	    CommandAPDU commande=new CommandAPDU(cmd_1);
-		ResponseAPDU resp = this.sendAPDU(commande);
+        byte[] result = new byte[challenge.length];
+        byte cmd [] ={CLA_DES,typeAPDU,crypto,P2,(byte)challenge.length};
+        byte  [] cmd_1=new byte[challenge.length+6];
+        System.arraycopy(cmd,(short)0,cmd_1,(short)0,(short)cmd.length);
+        System.arraycopy(challenge,(short)0,cmd_1,(short)5,(short)challenge.length);
+        cmd_1[21]=(byte)challenge.length;
+        CommandAPDU commande=new CommandAPDU(cmd_1);
+        ResponseAPDU resp = this.sendAPDU(commande);
         System.arraycopy(resp.getBytes(),0,result,0,challenge.length);
-	    return result;
+        return result;
     }
     
     public void run(){
@@ -310,7 +318,7 @@ public class ClientChat extends Thread {
 
     private void listenConsole(){
         String line;
-		sun.misc.BASE64Encoder encoder = new sun.misc.BASE64Encoder();
+
         try{
             while(isAlive)
             {
@@ -323,24 +331,24 @@ public class ClientChat extends Thread {
                     try{
                         String[] textParts = line.split(" ");
                         File file;
-                        byte[] bytes = new byte[50];
+                        byte[] bytes = new byte[16*1024];
                         InputStream in;
                         int count;
-						
-						cipherFileByCard(textParts[2]);
-						
-						file = new File(textParts[2]+"_crypt");
-						
-						in = new FileInputStream(file);
-						
+                        
+                        cipherFileByCard(textParts[2]);
+                        
+                        file = new File(textParts[2]+"_crypt");
+                        
+                        in = new FileInputStream(file);
+                        
                         while ((count = in.read(bytes)) > 0) {
                             byte[] bytes2 = new byte[count];
                             System.arraycopy(bytes, 0, bytes2, 0, count);
-                            String encodedString = encoder.encode(bytes2);
+                            String encodedString = Base64.getEncoder().withoutPadding().encodeToString(bytes2);
                             outputNetwork.println("/buffer " + textParts[1] + " "+ encodedString);
                         }
                         outputNetwork.println("/endoftransfer " + textParts[1] + " " + textParts[2]);
-						in.close();
+                        in.close();
                     } catch(ArrayIndexOutOfBoundsException e ) {
                         System.out.println("/file should be used with user name and file name");
                     }
@@ -353,7 +361,6 @@ public class ClientChat extends Thread {
 
     private void listenNetwork(){
         String line;
-		sun.misc.BASE64Decoder decoder = new sun.misc.BASE64Decoder();
         try{
             OutputStream out = null;
             while(isAlive)
@@ -364,8 +371,8 @@ public class ClientChat extends Thread {
                     String[] textParts = line.split(" ");
                     
                     try{
-						File dir = new File(textParts[1]);
-						dir.mkdirs();
+                        File dir = new File(textParts[1]);
+                        dir.mkdirs();
                         File file = new File(textParts[1]+File.separatorChar+textParts[2]+"_crypt");
                         out = new FileOutputStream(file);
                         transferMap.put(textParts[1], out);
@@ -383,7 +390,7 @@ public class ClientChat extends Thread {
                             System.out.println("BUFFER received outside file transfer context");
                         else
                         {
-                            byte[] decodedBytes = decoder.decodeBuffer(textParts[2]);
+                            byte[] decodedBytes = Base64.getDecoder().decode(textParts[2]);
                             out.write(decodedBytes);
                             out.flush();
                         }
@@ -401,7 +408,33 @@ public class ClientChat extends Thread {
                         out.close();
                         transferMap.remove(textParts[1]);
                     }
-					uncipherFileByCard(textParts[1]+File.separatorChar+textParts[2]);
+                    uncipherFileByCard(textParts[1]+File.separatorChar+textParts[2]);
+                }
+				else if(line.length() > 8 && line.substring(0,8).equals("[SERVER]"))
+                {
+                    String[] textParts = line.split(" ");
+                    try{
+						if(textParts[1].equals("AUTH_EXPONENT"))
+						{
+							// Client received server exponent public key : put it into smartcard
+							
+						}
+                        else if(textParts[1].equals("AUTH_PUBKEY"))
+						{
+							// Client received server modulus public key : put it into smartcard
+							
+							// Client to send back his client public key
+						}
+						else if(textParts[1].equals("AUTH_CHALL"))
+						{
+							// Client received challenge ciphered by server using client public key
+							// Decrypt it with smartcard, and encrypt it using server public key
+							
+							// Client to send back new ciphered challenge to server
+						}
+                    } catch(ArrayIndexOutOfBoundsException e ) {
+                        System.out.println("FILE transfer initiated without file name");
+                    }
                 }
                 else
                     outputConsole.println( line );
@@ -413,7 +446,7 @@ public class ClientChat extends Thread {
         }
     }
 
-	public static void main( String[] args ) {
+    public static void main( String[] args ) {
         new ClientChat(args);
     }
 }
