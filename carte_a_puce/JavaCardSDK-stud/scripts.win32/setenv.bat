@@ -1,4 +1,4 @@
-set PROJECT=helloworld
+set PROJECT=messSec
 
 set DIR=..
 set OUT=%DIR%\out
@@ -9,7 +9,8 @@ set CAPTRANSF=%MISC%\captransf-1.5
 set GPSHELL=%MISC%\gpshell-1.4.2
 set JC21_HOME=%MISC%\java_card_kit-2_1_2
 set JC22_HOME=%MISC%\java_card_kit-2_2_1
-set JAVA_HOME=%MISC%\jdk1.6
+set JAVA_HOME=%MISC%\jdk1.8
+set JAVA_HOME_APPLET=%MISC%\jdk1.6
 set OCF_HOME=%MISC%\OCF1.2
 set PCSC_WRAPPER=pcsc-wrapper-2.0
 set APDUIO_TERM=apduio-terminal-0.1
@@ -22,7 +23,7 @@ set JC22_EXP=%JC22_HOME%\api_export_files
 set JC_EXP=%JC21_EXP%
 
 set PKGCLIENT=client
-set CLIENT=TheClient
+set CLIENT=ClientChat
 set PKGAPPLET=applet
 set APPLET=TheApplet
 
