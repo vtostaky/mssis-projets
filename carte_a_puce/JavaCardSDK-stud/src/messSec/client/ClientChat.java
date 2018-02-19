@@ -316,7 +316,7 @@ public class ClientChat extends Thread {
 
 			System.out.println( "Send Server Modulus to smartcard..." );
 			System.arraycopy(cmd,0,command,0,5);
-			System.arraycopy(modulus,0,command,5,0x80);
+			System.arraycopy(modulus_b,0,command,5,0x80);
 			apdu = new CommandAPDU(command);
 			resp = sendAPDU(apdu);
 			
@@ -326,7 +326,7 @@ public class ClientChat extends Thread {
 			byte[] command2 = new byte[8];
 			System.out.println( "Send Server public exponent to smartcard..." );
 			System.arraycopy(cmd,0,command2,0,5);
-			System.arraycopy(exponent,0,command2,5,3);
+			System.arraycopy(exponent_b,0,command2,5,3);
 			apdu = new CommandAPDU(command2);
 			resp = sendAPDU(apdu);
 			
@@ -337,37 +337,37 @@ public class ClientChat extends Thread {
         try{
             SmartCard.shutdown();
         } catch( Exception e ) {
-            System.out.println( "TheClient error: " + e.getMessage() );
+            System.out.println( "putServerPublicKey error: " + e.getMessage() );
         }
     }
     
     private String getClientPublicKey()
     {
     	String clientPub="";
+		CommandAPDU apdu;
+		ResponseAPDU resp;
     	
         activateSmartcard();
 
         try {
-			CommandAPDU apdu;
-			ResponseAPDU resp;
 			byte[] mod = new byte[0x80];
 			byte[] exp = new byte[0x3];
 			
-			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_GET_PUBLIC_RSA_KEY, (byte)0x00, (byte)0x00, (byte)0x80 };
+			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_GET_PUBLIC_RSA_KEY, (byte)0x00, (byte)0x00, (byte)0x81 };
 
 			System.out.println( "Get client Modulus from smartcard..." );
 			apdu = new CommandAPDU(cmd);
 			resp = sendAPDU(apdu);
-			System.arraycopy(resp.getBytes(),0,mod,0,0x80);
+			System.arraycopy(resp.getBytes(),1,mod,0,0x80);
 			
 			clientPub += Base64.getEncoder().withoutPadding().encodeToString(mod);
 			
-			cmd[2] = (byte)0x01;
-			cmd[4] = (byte)0x03;
+			cmd[3] = (byte)0x01;
+			cmd[4] = (byte)0x04;
 			System.out.println( "Get client public exponent from smartcard..." );
 			apdu = new CommandAPDU(cmd);
 			resp = sendAPDU(apdu);
-			System.arraycopy(resp.getBytes(),0,exp,0,0x3);
+			System.arraycopy(resp.getBytes(),1,exp,0,0x03);
 			
 			clientPub += " " + Base64.getEncoder().withoutPadding().encodeToString(exp);
 			
@@ -378,7 +378,7 @@ public class ClientChat extends Thread {
         try{
             SmartCard.shutdown();
         } catch( Exception e ) {
-            System.out.println( "TheClient error: " + e.getMessage() );
+            System.out.println( "getClientPublicKey error: " + e.getMessage() );
         }
         return clientPub;
     }
@@ -386,13 +386,14 @@ public class ClientChat extends Thread {
     private String respondToChallenge(String challenge)
     {
     	String response="";
+		CommandAPDU apdu;
+		ResponseAPDU resp;
+		byte[] chall = new byte[0x80];
     	
         activateSmartcard();
 
         try {
-			CommandAPDU apdu;
-			ResponseAPDU resp;
-			byte[] chall = Base64.getDecoder().decode(challenge);
+			System.arraycopy(Base64.getDecoder().decode(challenge),0,chall,0,0x80);
 			
 			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_RSA_DECRYPT, (byte)0x00, (byte)0x00, (byte)0x80 };
 			byte[] command = new byte[5+0x80+1];
@@ -410,7 +411,7 @@ public class ClientChat extends Thread {
 			System.out.println( "Send challenge to smartcard,for encryption..." );
 			apdu = new CommandAPDU(command);
 			resp = sendAPDU(apdu);
-			System.arraycopy(resp.getBytes(),0,chall,0,0x3);
+			System.arraycopy(resp.getBytes(),0,chall,0,0x80);
 			
 			response += Base64.getEncoder().withoutPadding().encodeToString(chall);
 			
@@ -421,7 +422,7 @@ public class ClientChat extends Thread {
         try{
             SmartCard.shutdown();
         } catch( Exception e ) {
-            System.out.println( "TheClient error: " + e.getMessage() );
+            System.out.println( "respondToChallenge error: " + e.getMessage() );
         }
         return response;
     }
@@ -555,6 +556,8 @@ public class ClientChat extends Thread {
 							// Client to send back new ciphered challenge to server
 							outputNetwork.println(respondToChallenge(textParts[2]));
 						}
+						else
+							outputConsole.println( line );
                     } catch(ArrayIndexOutOfBoundsException e ) {
                         System.out.println("FILE transfer initiated without file name");
                     }
