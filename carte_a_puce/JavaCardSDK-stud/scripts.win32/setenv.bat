@@ -26,6 +26,9 @@ set PKGCLIENT=client
 set CLIENT=ClientChat
 set PKGAPPLET=applet
 set APPLET=TheApplet
+set PKGSERVER=server
+set SERVER=ServerChat
+set SERVICE=ServiceChat
 
 set AIDPACKAGE=0xA0:0x00:0x00:0x00:0x62:0x03:0x01:0x0C:0x06
 set PACKAGEAID=A00000006203010C06
