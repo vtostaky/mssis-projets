@@ -1,24 +1,43 @@
 import java.net.*;
 import java.io.*;
 import java.util.*;
-
+import java.util.Base64;
+import java.util.Date;
+import java.util.Random;
+import java.math.BigInteger;
+import java.security.KeyFactory;
+import java.security.PublicKey;
+import java.security.PrivateKey;
+import java.security.Security;
 
 class ServiceChat extends Thread {
 
     final static int NBCLIENTSMAX = 3;
+	final static int DATASIZE = 128;				//128 to use with RSA1024_NO_PAD
+    
 	Socket socket;
 	BufferedReader input;
 	static PrintStream[] outputs = new PrintStream[NBCLIENTSMAX];
     static int nbClients = 0;
     static String clientID[] = new String[NBCLIENTSMAX];
     String clientName;
-    static HashMap<String, String> credentialsMap = new HashMap<>();
+    static HashMap<String, String> credentialsMap = new HashMap<String, String>();
     boolean isAuthenticated;
     boolean nameProvided;
     boolean pendingTransfer = false;
+    
+    static private PrivateKey priv;
+	static private byte[] modulus_b = new byte[DATASIZE];
+	static private byte[] public_exponent_b = new byte[3];
+	
+	byte[] challengeBytes = new byte[DATASIZE];
 
-	public ServiceChat( Socket socket ) {
+	public ServiceChat( Socket socket, PrivateKey priv, byte[] mod_b, byte[] exp_b ) {
 		this.socket = socket;
+		this.priv = priv;
+		System.arraycopy(mod_b, 0, modulus_b, 0, 128);
+		System.arraycopy(exp_b, 0, public_exponent_b, 0, 3);
+		
 		this.start();
 	}
 
@@ -114,6 +133,67 @@ class ServiceChat extends Thread {
             }
         }
     }
+    
+    private synchronized void generateAndSendChallenge(String clientPubKey){
+    	String[] textParts = clientPubKey.split(" ");
+    	byte[] modClient = Base64.getDecoder().decode(textParts[0]);
+    	byte[] expClient = Base64.getDecoder().decode(textParts[1]);
+    	
+    	String mod_s =  HexString.hexify( modClient );
+		mod_s = mod_s.replaceAll( " ", "" );
+		mod_s = mod_s.replaceAll( "\n", "" );
+
+		String pub_s =  HexString.hexify( expClient );
+		pub_s = pub_s.replaceAll( " ", "" );
+		pub_s = pub_s.replaceAll( "\n", "" );
+
+		// Load the keys from String into BigIntegers
+		BigInteger modulus = new BigInteger(mod_s, 16);
+		BigInteger pubExponent = new BigInteger(pub_s, 16);
+
+		// Create private and public key specs from BinIntegers
+		RSAPublicKeySpec publicSpec = new RSAPublicKeySpec(modulus, pubExponent);
+
+		// Create the RSA private and public keys
+		KeyFactory factory = KeyFactory.getInstance( "RSA" );
+		PublicKey pubClient = factory.generatePublic(publicSpec);
+    	// Get Cipher able to apply RSA_NOPAD
+		// (must use "Bouncy Castle" crypto provider)
+		Security.addProvider(new BouncyCastleProvider());
+		Cipher cRSA_NO_PAD = Cipher.getInstance( "RSA/NONE/NoPadding", "BC" );
+
+		// Get challenge data
+		Random r = new Random( (new Date()).getTime() );
+		r.nextBytes( challengeBytes );
+		System.out.println("challenge:\n" + Base64.getEncoder().withoutPadding().encodeToString( challengeBytes ) + "\n" );
+		
+		// Crypt with public key
+		cRSA_NO_PAD.init( Cipher.ENCRYPT_MODE, pubClient );
+		byte[] ciphered = new byte[DATASIZE];
+		System.out.println( "*" );
+		cRSA_NO_PAD.doFinal(challengeBytes, 0, DATASIZE, ciphered, 0);
+		//ciphered = cRSA_NO_PAD.doFinal( challengeBytes );
+		System.out.println( "*" );
+		System.out.println("ciphered by server is:\n" + Base64.getEncoder().withoutPadding().encodeToString(ciphered) + "\n" );
+    	
+    	sendMessage(getClientID(), "[SERVER] AUTH_CHALL "+ Base64.getEncoder().withoutPadding().encodeToString(ciphered));
+    }
+
+	private synchronized void initiatePublicKeyExchange() {
+		sendMessage(getClientID(), "[SERVER] AUTH_PUBKEY "+ Base64.getEncoder().withoutPadding().encodeToString(modulus_b)+
+			" "+Base64.getEncoder().withoutPadding().encodeToString(public_exponent_b));
+	}
+	
+	private boolean compareResponseToSentChallenge(String response) {
+		byte[] decodedBytes = Base64.getDecoder().decode(response);
+		// Decrypt with private key
+		cRSA_NO_PAD.init( Cipher.DECRYPT_MODE, priv );
+		byte[] unciphered = new byte[DATASIZE];
+		cRSA_NO_PAD.doFinal( decodedBytes, 0, DATASIZE, unciphered, 0);
+		System.out.println("unciphered by server is:\n" + Base64.getEncoder().withoutPadding().encodeToString(unciphered) + "\n" );
+		
+		return Arrays.equals(challengeBytes, unciphered);
+	}
 
     private synchronized void authentication(String texte){
 
@@ -123,38 +203,45 @@ class ServiceChat extends Thread {
         {
             if(findMatchingName(texte) < getNbClients())
             {
-                sendMessage(currentClientIndex, "Pseudo " + texte + " is already connected\nPlease enter your name" );
+                sendMessage(currentClientIndex, "[SERVER] Pseudo " + texte + " is already connected\nPlease enter your name" );
             }
             else
             {
                 if(credentialsMap.get(texte) != null)
-                    sendMessage(currentClientIndex, "Please authenticate with your password" );
+                {
+                    sendMessage(currentClientIndex, "[SERVER] Please authenticate" );
+                    generateAndSendChallenge(credentialsMap.get(texte));
+                }
                 else
-                    sendMessage(currentClientIndex, "Please provide a password for further authentication" );
+                {
+                    sendMessage(currentClientIndex, "[SERVER] has sent public key" );
+                    initiatePublicKeyExchange();
+                }
                 nameProvided = true;
                 clientName = ""+ texte;
                 clientID[currentClientIndex] = clientName;
             }
         }
+        else if(credentialsMap.get(clientName) == null)
+        {
+            //Put Base64 public key received from client into Hash map
+            credentialsMap.put(clientName, texte); 
+            //Send challenge for authentication
+            sendMessage(currentClientIndex, "[SERVER] Thanks for public key, please authenticate" );
+            generateAndSendChallenge(texte);
+        }
         else
         {
-            if(credentialsMap.get(clientName) != null)
-            {
-                if(credentialsMap.get(clientName).equals(texte))
-                    isAuthenticated = true;
-                else
-                {
-                    sendMessage(currentClientIndex, "Authentication failure\nPlease enter your name" );
-                    isAuthenticated = false;
-                    nameProvided = false;
-                    clientName = "";
-                    clientID[currentClientIndex] = clientName;
-                }
-            }
+        	//Received String for user with an entry in DB : expecting answer to challenge
+            if(compareResponseToSentChallenge(texte))
+                isAuthenticated = true;
             else
             {
-                credentialsMap.put(clientName, texte); 
-                isAuthenticated = true;
+                sendMessage(currentClientIndex, "Authentication failure\nPlease enter your name" );
+                isAuthenticated = false;
+                nameProvided = false;
+                clientName = "";
+                clientID[currentClientIndex] = clientName;
             }
         }
         if(isAuthenticated)

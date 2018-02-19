@@ -300,6 +300,132 @@ public class ClientChat extends Thread {
         return result;
     }
     
+    private void putServerPublicKey(String modulus, String exponent)
+    {
+    	byte[] modulus_b = Base64.getDecoder().decode(modulus);
+    	byte[] exponent_b = Base64.getDecoder().decode(exponent);
+    	
+        activateSmartcard();
+
+        try {
+			CommandAPDU apdu;
+			ResponseAPDU resp;
+			
+			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_PUT_SERVER_PUBLIC_RSA_KEY, (byte)0x00, (byte)0x00, (byte)0x80 };
+            byte[] command = new byte[0x85];
+
+			System.out.println( "Send Server Modulus to smartcard..." );
+			System.arraycopy(cmd,0,command,0,5);
+			System.arraycopy(modulus,0,command,5,0x80);
+			apdu = new CommandAPDU(command);
+			resp = sendAPDU(apdu);
+			
+			cmd[2] = (byte)0x01;
+			cmd[4] = (byte)0x03;
+			
+			byte[] command2 = new byte[8];
+			System.out.println( "Send Server public exponent to smartcard..." );
+			System.arraycopy(cmd,0,command2,0,5);
+			System.arraycopy(exponent,0,command2,5,3);
+			apdu = new CommandAPDU(command2);
+			resp = sendAPDU(apdu);
+			
+        } catch( Exception e ) {}
+
+        System.out.println( "" );
+        
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
+            System.out.println( "TheClient error: " + e.getMessage() );
+        }
+    }
+    
+    private String getClientPublicKey()
+    {
+    	String clientPub="";
+    	
+        activateSmartcard();
+
+        try {
+			CommandAPDU apdu;
+			ResponseAPDU resp;
+			byte[] mod = new byte[0x80];
+			byte[] exp = new byte[0x3];
+			
+			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_GET_PUBLIC_RSA_KEY, (byte)0x00, (byte)0x00, (byte)0x80 };
+
+			System.out.println( "Get client Modulus from smartcard..." );
+			apdu = new CommandAPDU(cmd);
+			resp = sendAPDU(apdu);
+			System.arraycopy(resp.getBytes(),0,mod,0,0x80);
+			
+			clientPub += Base64.getEncoder().withoutPadding().encodeToString(mod);
+			
+			cmd[2] = (byte)0x01;
+			cmd[4] = (byte)0x03;
+			System.out.println( "Get client public exponent from smartcard..." );
+			apdu = new CommandAPDU(cmd);
+			resp = sendAPDU(apdu);
+			System.arraycopy(resp.getBytes(),0,exp,0,0x3);
+			
+			clientPub += " " + Base64.getEncoder().withoutPadding().encodeToString(exp);
+			
+        } catch( Exception e ) {}
+
+        System.out.println( "" );
+        
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
+            System.out.println( "TheClient error: " + e.getMessage() );
+        }
+        return clientPub;
+    }
+    
+    private String respondToChallenge(String challenge)
+    {
+    	String response="";
+    	
+        activateSmartcard();
+
+        try {
+			CommandAPDU apdu;
+			ResponseAPDU resp;
+			byte[] chall = Base64.getDecoder().decode(challenge);
+			
+			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_RSA_DECRYPT, (byte)0x00, (byte)0x00, (byte)0x80 };
+			byte[] command = new byte[5+0x80+1];
+
+			System.out.println( "Send challenge to smartcard,for decryption..." );
+			System.arraycopy(cmd,0,command,0,5);
+			System.arraycopy(chall,0,command,5,0x80);
+			command[0x85] = (byte)0x80;
+			apdu = new CommandAPDU(command);
+			resp = sendAPDU(apdu);
+			System.arraycopy(resp.getBytes(),0,chall,0,0x80);
+			
+			command[1] = (byte)INS_RSA_SERVER_ENCRYPT;
+			System.arraycopy(chall,0,command,5,0x80);
+			System.out.println( "Send challenge to smartcard,for encryption..." );
+			apdu = new CommandAPDU(command);
+			resp = sendAPDU(apdu);
+			System.arraycopy(resp.getBytes(),0,chall,0,0x3);
+			
+			response += Base64.getEncoder().withoutPadding().encodeToString(chall);
+			
+        } catch( Exception e ) {}
+
+        System.out.println( "" );
+        
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
+            System.out.println( "TheClient error: " + e.getMessage() );
+        }
+        return response;
+    }
+    
     public void run(){
         listenNetwork();
     }
@@ -414,23 +540,20 @@ public class ClientChat extends Thread {
                 {
                     String[] textParts = line.split(" ");
                     try{
-						if(textParts[1].equals("AUTH_EXPONENT"))
+                        if(textParts[1].equals("AUTH_PUBKEY"))
 						{
-							// Client received server exponent public key : put it into smartcard
-							
-						}
-                        else if(textParts[1].equals("AUTH_PUBKEY"))
-						{
-							// Client received server modulus public key : put it into smartcard
+							// Client received server public key : put it into smartcard
+							putServerPublicKey(textParts[2], textParts[3]);
 							
 							// Client to send back his client public key
+							outputNetwork.println(getClientPublicKey());
 						}
 						else if(textParts[1].equals("AUTH_CHALL"))
 						{
 							// Client received challenge ciphered by server using client public key
 							// Decrypt it with smartcard, and encrypt it using server public key
-							
 							// Client to send back new ciphered challenge to server
+							outputNetwork.println(respondToChallenge(textParts[2]));
 						}
                     } catch(ArrayIndexOutOfBoundsException e ) {
                         System.out.println("FILE transfer initiated without file name");

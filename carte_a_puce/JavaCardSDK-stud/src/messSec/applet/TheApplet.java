@@ -319,29 +319,17 @@ public class TheApplet extends Applet {
 
     // RSA Encrypt (with public key)
     void RSAEncrypt(APDU apdu) {
-        byte[] buffer = apdu.getBuffer();
         // initialize the algorithm with default key
         cRSA_NO_PAD.init(publicRSAKey, Cipher.MODE_ENCRYPT);
-        // compute internel test
-        cRSA_NO_PAD.doFinal(inC, (short)0, (short)(cipherRSAKeyLength/8), buffer, (short)1);
-        // compare result with the patern
-        buffer[0] = Util.arrayCompare(buffer, (short)1, cRSAPublicEncResult, (short)0, (short)(cipherRSAKeyLength/8));
-        // send difference
-        apdu.setOutgoingAndSend((short)0, (short)1);
+        cipherGeneric( apdu, cRSA_NO_PAD, cipherRSAKeyLength);
     }
 
 
     // RSA Decrypt (with private key)
     void RSADecrypt(APDU apdu) {
-        byte[] buffer = apdu.getBuffer();
         // initialize the algorithm with default key
         cRSA_NO_PAD.init( privateRSAKey, Cipher.MODE_DECRYPT );
-        // compute internel test
-        cRSA_NO_PAD.doFinal( cRSAPublicEncResult, (short)0, (short)(cipherRSAKeyLength/8), buffer, (short)1 );
-        // compare result with the patern
-        buffer[0] = Util.arrayCompare( buffer, (short)1, inC, (short)0, (short)(cipherRSAKeyLength/8) );
-        // send difference
-        apdu.setOutgoingAndSend( (short)0, (short)1 );
+        cipherGeneric( apdu, cRSA_NO_PAD, cipherRSAKeyLength);
     }
 
 
