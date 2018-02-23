@@ -20,6 +20,8 @@ public class ClientChat extends Thread {
     private PassThruCardService servClient = null;
     boolean DISPLAY = true;
     boolean loop = true;
+	boolean isAuthenticated = false;
+	private String clientName;
 
     static final byte CLA_DES                                   = (byte)0x00;
     static final byte P1                                        = (byte)0x00;
@@ -286,6 +288,94 @@ public class ClientChat extends Thread {
             System.out.println( "TheClient error: " + e.getMessage() );
         }
     }
+	
+    private String uncipherMessageByCard(String message) {
+	    byte[] response;
+	    byte[] unciphered; 
+		byte[] challengeDES = new byte[16];
+		String res = "";
+		
+		System.out.println(message);
+		
+		activateSmartcard();
+
+        try{
+			byte[] mess = Base64.getDecoder().decode(message);
+			byte[] result = new byte[mess.length];
+
+			for(int j = 0; j < mess.length/16; j+=16)
+			{
+				for(int i = 0; i < 16; i++)
+				{
+					challengeDES[i] = mess[j+i];
+				}
+				//tableau challenge des
+				System.out.println("\nUncipher challenge:\n" + challengeDES + "\n");
+				//cipher generique est pour chiffrer et dechiffrer
+				response = cipherGeneric(UNCIPHERFILEBYCARD,INS_DES_ECB_NOPAD_DEC, challengeDES);
+				System.arraycopy(response,0,result,j,response.length);
+			}
+			res = new String(result);
+        } catch( Exception e ) {}
+		
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
+            System.out.println( "TheClient error: " + e.getMessage() );
+        }
+		return res;
+    }
+	
+    private String cipherMessageByCard(String message) {
+	    byte[] response;
+	    byte[] unciphered; 
+		byte[] challengeDES = new byte[16];
+		byte[] mess = message.getBytes();
+		byte[] result = new byte[mess.length/16*16+16];
+		String res = "";
+		int j = 0, i = 0;
+		
+		activateSmartcard();
+		
+        try{
+			for(j = 0; j < mess.length/16; j+=16)
+			{
+				for(i = 0; i < 16; i++)
+				{
+					challengeDES[i] = mess[j+i];
+				}
+				//tableau challenge des
+				System.out.println("\nCipher challenge "+i+":\n" + challengeDES + "\n");
+				//cipher generique est pour chiffrer et dechiffrer
+				response = cipherGeneric(CIPHERFILEBYCARD,INS_DES_ECB_NOPAD_ENC, challengeDES);
+				System.arraycopy(response,0,result,j,response.length);
+			}
+			for(i = 0; i < 16; i++)
+			{
+				if(j+i < mess.length)
+					challengeDES[i] = mess[j+i];
+				else
+					challengeDES[i] = 0;
+			}
+		
+			//tableau challenge des
+			System.out.println("\nCipher challenge final:\n" + Base64.getEncoder().withoutPadding().encodeToString(challengeDES) + "\n");
+			//cipher generique est pour chiffrer et dechiffrer
+			response = cipherGeneric(CIPHERFILEBYCARD,INS_DES_ECB_NOPAD_ENC, challengeDES);
+			System.arraycopy(response,0,result,j,response.length);
+			res = Base64.getEncoder().withoutPadding().encodeToString(result);
+
+        } catch( Exception e ) {
+			System.out.println("Exception "+e.getMessage());
+		}
+		
+        try{
+            SmartCard.shutdown();
+        } catch( Exception e ) {
+            System.out.println( "TheClient error: " + e.getMessage() );
+        }
+		return res;
+    }
 
     private byte[] cipherGeneric(byte typeAPDU, byte crypto, byte[] challenge ) {
         byte[] result = new byte[challenge.length];
@@ -352,6 +442,9 @@ public class ClientChat extends Thread {
         try {
 			byte[] mod = new byte[0x80];
 			byte[] exp = new byte[0x3];
+			
+			//apdu = new CommandAPDU(new byte[] { (byte)CLA_RSA,  (byte)INS_GENERATE_RSA_KEY, (byte)0x00, (byte)0x00, (byte)0x00 });
+			//resp = sendAPDU(apdu);
 			
 			byte[] cmd = { (byte)CLA_RSA,  (byte)INS_GET_PUBLIC_RSA_KEY, (byte)0x00, (byte)0x00, (byte)0x81 };
 
@@ -450,11 +543,9 @@ public class ClientChat extends Thread {
             while(isAlive)
             {
                 line = inputConsole.readLine();
-                outputNetwork.println( line );
-                if(line.equals("/quit"))
-                    isAlive = false;
-                else if(line.length() > 5 && line.substring(0,5).equals("/file"))
+                if(line.length() > 5 && line.substring(0,5).equals("/file"))
                 {
+					outputNetwork.println(line);
                     try{
                         String[] textParts = line.split(" ");
                         File file;
@@ -480,9 +571,49 @@ public class ClientChat extends Thread {
                         System.out.println("/file should be used with user name and file name");
                     }
                 }
-            }
-        } catch( IOException e ) {
-            System.out.println( "I/O problem" );
+				else
+				{
+					StringTokenizer st = new StringTokenizer(line);
+					if(st.hasMoreTokens()) {
+						String text = st.nextToken();
+
+						switch(text)
+						{
+							case "/quit":
+								isAlive = false;
+								outputNetwork.println( line );
+								break;
+							case "/nusers":
+								outputNetwork.println( line );
+								break;
+							case "/list":
+								outputNetwork.println( line );
+								break;
+							case "/nickname":
+								outputNetwork.println( line );
+								break;
+							case "/msg":
+								if(st.hasMoreTokens())
+								{
+									String header = text + " " + st.nextToken() + " ";
+									outputNetwork.println(header + cipherMessageByCard(line.substring(header.length(), line.length())));
+								}
+								break;
+							default:
+								if(isAuthenticated)
+									outputNetwork.println(cipherMessageByCard(line));
+								else
+								{
+									outputNetwork.println(text);
+									clientName = text;
+								}
+								break;
+						}
+					}
+				}
+			}
+		} catch( IOException e ) {
+			System.out.println( "I/O problem" );
         }
     }
 
@@ -544,7 +675,7 @@ public class ClientChat extends Thread {
                         if(textParts[1].equals("AUTH_PUBKEY"))
 						{
 							// Client received server public key : put it into smartcard
-							putServerPublicKey(textParts[2], textParts[3]);
+							//putServerPublicKey(textParts[2], textParts[3]);
 							
 							// Client to send back his client public key
 							outputNetwork.println(getClientPublicKey());
@@ -557,13 +688,24 @@ public class ClientChat extends Thread {
 							outputNetwork.println(respondToChallenge(textParts[2]));
 						}
 						else
+						{
+							if(textParts[1].equals("Hello"))
+								isAuthenticated = true;
 							outputConsole.println( line );
+						}
                     } catch(ArrayIndexOutOfBoundsException e ) {
                         System.out.println("FILE transfer initiated without file name");
                     }
                 }
                 else
-                    outputConsole.println( line );
+				{
+					if(line.length() > 5)
+					{
+						String[] textParts = line.split(" ");
+						if(textParts.length > 3 && textParts[0].equals("[MSG]") && !textParts[1].equals(clientName))
+							outputConsole.println(textParts[1] + " " +textParts[2]+" "+uncipherMessageByCard(textParts[3]));
+					}
+				}
             }
         } catch( IOException e ) {
             System.out.println( "I/O problem" );
